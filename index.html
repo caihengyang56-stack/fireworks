@@ -3,19 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>🎆 像素烟花 - 点一下放一朵</title>
+<title>🎆 像素烟花 Pro</title>
 <style>
   body { margin: 0; background: #000; overflow: hidden; touch-action: none; font-family: system-ui, sans-serif; }
   canvas { display: block; }
   #title { position: fixed; top: 18px; left: 0; width: 100%; text-align: center; color: #fff; font-size: 20px; font-weight: bold; text-shadow: 0 0 12px rgba(255,255,255,.5); pointer-events: none; z-index: 2; }
-  #tip { position: fixed; bottom: 20px; left: 0; width: 100%; text-align: center; color: #aaa; font-size: 14px; pointer-events: none; z-index: 2; }
+  #tip { position: fixed; bottom: 22px; left: 0; width: 100%; text-align: center; color: #aaa; font-size: 14px; pointer-events: none; z-index: 2; }
   #soundBtn { position: fixed; top: 18px; right: 14px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.3); color: #fff; border-radius: 20px; padding: 6px 14px; font-size: 14px; z-index: 3; }
+  #unlock { position: fixed; top: 50%; left: 50%; transform: translate(-50%,-50%); color: #fff; font-size: 18px; background: rgba(0,0,0,.6); padding: 14px 26px; border-radius: 30px; border: 1px solid rgba(255,255,255,.3); z-index: 5; display: none; }
 </style>
 </head>
 <body>
-<div id="title">🎆 像素烟花</div>
+<div id="title">🎆 像素烟花 Pro</div>
 <button id="soundBtn">🔊 音效开</button>
-<div id="tip">点击屏幕任意位置放烟花 · 自动连放中</div>
+<div id="unlock">👆 点击屏幕开启声音</div>
+<div id="tip">点击放烟花 · 自动连放中</div>
 <canvas id="c"></canvas>
 
 <script>
@@ -26,93 +28,148 @@ function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeig
 resize();
 window.addEventListener("resize", resize);
 
-const particles = [];
-const COLORS = ["#ff0","#f0f","#0ff","#0f0","#f80","#f00","#0af","#fff","#f6f","#8f0"];
-function rand(a, b) { return Math.random() * (b - a) + a; }
-function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+const particles = [];   // 爆炸粒子
+const rockets = [];     // 上升火箭
+const COLORS = ["#ffd700","#ff69b4","#00ffff","#7fff00","#ff8c00","#ff3333","#7df9ff","#fff","#ff6ec7","#aaff00"];
+function rand(a,b){ return Math.random()*(b-a)+a; }
+function pick(a){ return a[Math.floor(Math.random()*a.length)]; }
 
-// ---- 音效（Web Audio 合成，无需音频文件）----
-let audioCtx = null, soundOn = true;
-function getAudio() {
-  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
-  return audioCtx;
+// ---------- 音效：分层合成 ----------
+let ac = null, soundOn = true;
+function getAC() {
+  if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+  return ac;
 }
-function boomSound() {
+function unlockAudio() {
+  const a = getAC();
+  if (a && a.state === "suspended") a.resume();
+  document.getElementById("unlock").style.display = "none";
+  document.getElementById("tip").textContent = "点击放烟花 · 自动连放中";
+}
+function boomSound(size) {
   if (!soundOn) return;
-  const ac = getAudio();
-  if (!ac) return;
+  const a = getAC(); if (!a) return;
   try {
-    const t = ac.currentTime;
-    // 爆炸：白噪声 + 低通衰减
-    const buf = ac.createBuffer(1, ac.sampleRate * 0.6, ac.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random()*2-1) * (1 - i/data.length);
-    const src = ac.createBufferSource();
-    src.buffer = buf;
-    const filter = ac.createBiquadFilter();
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(3000, t);
-    filter.frequency.exponentialRampToValueAtTime(200, t + 0.6);
-    const gain = ac.createGain();
-    gain.gain.setValueAtTime(0.25, t);
-    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-    src.connect(filter); filter.connect(gain); gain.connect(ac.destination);
-    src.start(t);
+    const t = a.currentTime;
+    // 低频"砰"：正弦波快速衰减
+    const osc = a.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(size > 1 ? 90 : 120, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.4);
+    const g1 = a.createGain();
+    g1.gain.setValueAtTime(0.5, t);
+    g1.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    osc.connect(g1); g1.connect(a.destination);
+    osc.start(t); osc.stop(t + 0.55);
+    // 高频"嘶"：噪声 + 带通
+    const buf = a.createBuffer(1, a.sampleRate * 0.5, a.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * (1 - i/d.length);
+    const src = a.createBufferSource(); src.buffer = buf;
+    const bp = a.createBiquadFilter(); bp.type = "bandpass";
+    bp.frequency.setValueAtTime(size > 1 ? 2400 : 3200, t);
+    bp.frequency.exponentialRampToValueAtTime(500, t + 0.4);
+    bp.Q.value = 0.8;
+    const g2 = a.createGain();
+    g2.gain.setValueAtTime(0.35, t);
+    g2.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+    src.connect(bp); bp.connect(g2); g2.connect(a.destination);
+    src.start(t); src.stop(t + 0.5);
   } catch(e){}
 }
 
-function explode(x, y, big) {
-  const color = pick(COLORS);
-  const n = big ? 130 : 80;
-  const speed = big ? rand(3.5, 9) : rand(2, 7);
+// ---------- 烟花 ----------
+function launch(x, targetY) {
+  rockets.push({ x, y: H + 10, ty: targetY, v: rand(9, 13), color: pick(COLORS), trail: [] });
+}
+function explode(x, y, color, big) {
+  const n = big ? 150 : 90;
+  const spd = big ? rand(4, 10) : rand(2.5, 7.5);
+  const colors = color ? [color, shade(color)] : [pick(COLORS), pick(COLORS)];
   for (let i = 0; i < n; i++) {
-    const angle = (i / n) * Math.PI * 2 + rand(-0.15, 0.15);
+    const ang = (i / n) * Math.PI * 2 + rand(-0.12, 0.12);
     particles.push({
       x, y,
-      vx: Math.cos(angle) * rand(speed*0.6, speed),
-      vy: Math.sin(angle) * rand(speed*0.6, speed),
-      life: 1, size: big ? rand(2,5) : rand(2,4), color
+      vx: Math.cos(ang) * rand(spd*0.5, spd),
+      vy: Math.sin(ang) * rand(spd*0.5, spd),
+      life: 1, decay: rand(0.008, 0.015),
+      size: rand(1.5, 3.5), color: pick(colors),
+      tw: rand(0, 6.28)   // 闪烁相位
     });
   }
-  boomSound();
+  boomSound(big ? 1.3 : 1);
+  // 30% 概率二次爆炸（大烟花特效）
+  if (big && Math.random() < 0.3) setTimeout(() => explode(x, y, pick(COLORS), false), 200);
+}
+function shade(c) {
+  const bright = Math.random() > 0.5;
+  return bright ? c : "#666";
 }
 
 function update() {
-  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "rgba(0,0,0,0.18)";
   ctx.fillRect(0, 0, W, H);
+  // 叠加模式 = 辉光效果
+  ctx.globalCompositeOperation = "lighter";
+
+  // 火箭上升
+  for (let i = rockets.length - 1; i >= 0; i--) {
+    const r = rockets[i];
+    r.trail.push({ x: r.x, y: r.y });
+    if (r.trail.length > 8) r.trail.shift();
+    r.y -= r.v;
+    if (r.y <= r.ty) { explode(r.x, r.y, r.color, true); rockets.splice(i, 1); continue; }
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(r.x - 1.5, r.y - 1.5, 3, 3);
+    for (const tr of r.trail) {
+      ctx.globalAlpha = 0.4;
+      ctx.fillStyle = r.color;
+      ctx.fillRect(tr.x - 1, tr.y - 1, 2, 2);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // 爆炸粒子（发光圆点）
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx; p.y += p.vy;
-    p.vy += 0.12;
-    p.life -= 0.013;
+    p.vy += 0.1;
+    p.vx *= 0.99;
+    p.life -= p.decay;
     if (p.life <= 0) { particles.splice(i, 1); continue; }
-    ctx.globalAlpha = Math.max(p.life, 0);
+    const twinkle = 0.7 + 0.3 * Math.sin(p.tw + p.life * 20);
+    ctx.globalAlpha = Math.max(p.life, 0) * twinkle;
     ctx.fillStyle = p.color;
-    ctx.fillRect(p.x, p.y, p.size, p.size);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * (0.6 + p.life * 0.6), 0, 6.28);
+    ctx.fill();
   }
   ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
   requestAnimationFrame(update);
 }
 update();
 
-// 点击 / 触摸放烟花
-canvas.addEventListener("click", e => explode(e.clientX, e.clientY, false));
+// ---------- 交互 ----------
+function handleTap(x, y) { unlockAudio(); explode(x, y, null, false); }
+canvas.addEventListener("click", e => handleTap(e.clientX, e.clientY));
 canvas.addEventListener("touchstart", e => {
+  unlockAudio();
   const t = e.touches[0];
-  explode(t.clientX, t.clientY, false);
+  handleTap(t.clientX, t.clientY);
 });
-
-// 音效开关
 document.getElementById("soundBtn").addEventListener("click", () => {
   soundOn = !soundOn;
   document.getElementById("soundBtn").textContent = soundOn ? "🔊 音效开" : "🔇 音效关";
-  if (soundOn) getAudio();
+  if (soundOn) { unlockAudio(); }
 });
 
-// 自动连放（每 0.9 秒，随机位置 + 随机大小）
+// 自动放：火箭升空 + 直接爆
 setInterval(() => {
-  explode(rand(W*0.15, W*0.85), rand(H*0.15, H*0.5), Math.random() > 0.6);
-}, 900);
+  if (Math.random() > 0.65) launch(rand(W*0.15, W*0.85), rand(H*0.15, H*0.45));
+  else explode(rand(W*0.15, W*0.85), rand(H*0.15, H*0.5), null, false);
+}, 700);
 </script>
 </body>
 </html>
