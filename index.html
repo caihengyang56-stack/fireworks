@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>🎆 像素烟花 - 点一下放一朵</title>
+<style>
+  body { margin: 0; background: #000; overflow: hidden; touch-action: none; font-family: system-ui, sans-serif; }
+  canvas { display: block; }
+  #title { position: fixed; top: 18px; left: 0; width: 100%; text-align: center; color: #fff; font-size: 20px; font-weight: bold; text-shadow: 0 0 12px rgba(255,255,255,.5); pointer-events: none; z-index: 2; }
+  #tip { position: fixed; bottom: 20px; left: 0; width: 100%; text-align: center; color: #aaa; font-size: 14px; pointer-events: none; z-index: 2; }
+  #soundBtn { position: fixed; top: 18px; right: 14px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.3); color: #fff; border-radius: 20px; padding: 6px 14px; font-size: 14px; z-index: 3; }
+</style>
+</head>
+<body>
+<div id="title">🎆 像素烟花</div>
+<button id="soundBtn">🔊 音效开</button>
+<div id="tip">点击屏幕任意位置放烟花 · 自动连放中</div>
+<canvas id="c"></canvas>
+
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize();
+window.addEventListener("resize", resize);
+
+const particles = [];
+const COLORS = ["#ff0","#f0f","#0ff","#0f0","#f80","#f00","#0af","#fff","#f6f","#8f0"];
+function rand(a, b) { return Math.random() * (b - a) + a; }
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+// ---- 音效（Web Audio 合成，无需音频文件）----
+let audioCtx = null, soundOn = true;
+function getAudio() {
+  if (!audioCtx) { try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){} }
+  return audioCtx;
+}
+function boomSound() {
+  if (!soundOn) return;
+  const ac = getAudio();
+  if (!ac) return;
+  try {
+    const t = ac.currentTime;
+    // 爆炸：白噪声 + 低通衰减
+    const buf = ac.createBuffer(1, ac.sampleRate * 0.6, ac.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random()*2-1) * (1 - i/data.length);
+    const src = ac.createBufferSource();
+    src.buffer = buf;
+    const filter = ac.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(3000, t);
+    filter.frequency.exponentialRampToValueAtTime(200, t + 0.6);
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(0.25, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    src.connect(filter); filter.connect(gain); gain.connect(ac.destination);
+    src.start(t);
+  } catch(e){}
+}
+
+function explode(x, y, big) {
+  const color = pick(COLORS);
+  const n = big ? 130 : 80;
+  const speed = big ? rand(3.5, 9) : rand(2, 7);
+  for (let i = 0; i < n; i++) {
+    const angle = (i / n) * Math.PI * 2 + rand(-0.15, 0.15);
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * rand(speed*0.6, speed),
+      vy: Math.sin(angle) * rand(speed*0.6, speed),
+      life: 1, size: big ? rand(2,5) : rand(2,4), color
+    });
+  }
+  boomSound();
+}
+
+function update() {
+  ctx.fillStyle = "rgba(0,0,0,0.15)";
+  ctx.fillRect(0, 0, W, H);
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx; p.y += p.vy;
+    p.vy += 0.12;
+    p.life -= 0.013;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.globalAlpha = Math.max(p.life, 0);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(update);
+}
+update();
+
+// 点击 / 触摸放烟花
+canvas.addEventListener("click", e => explode(e.clientX, e.clientY, false));
+canvas.addEventListener("touchstart", e => {
+  const t = e.touches[0];
+  explode(t.clientX, t.clientY, false);
+});
+
+// 音效开关
+document.getElementById("soundBtn").addEventListener("click", () => {
+  soundOn = !soundOn;
+  document.getElementById("soundBtn").textContent = soundOn ? "🔊 音效开" : "🔇 音效关";
+  if (soundOn) getAudio();
+});
+
+// 自动连放（每 0.9 秒，随机位置 + 随机大小）
+setInterval(() => {
+  explode(rand(W*0.15, W*0.85), rand(H*0.15, H*0.5), Math.random() > 0.6);
+}, 900);
+</script>
+</body>
+</html>
